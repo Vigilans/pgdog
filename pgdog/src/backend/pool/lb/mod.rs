@@ -381,7 +381,13 @@ impl LoadBalancer {
                 return true;
             }
             let stats = target.pool.lsn_stats();
-            stats.valid() && stats.offset_bytes >= min_lsn
+            let caught_up = stats.valid() && stats.offset_bytes >= min_lsn;
+            if !caught_up && min_lsn != i64::MAX {
+                // A stale sample holds the replica back: refresh it. With periodic
+                // LSN checks disabled, nothing else does.
+                target.pool.request_lsn_check();
+            }
+            caught_up
         });
         let replicas_after = candidates
             .iter()

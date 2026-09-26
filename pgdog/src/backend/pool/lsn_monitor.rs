@@ -170,6 +170,11 @@ impl LsnMonitor {
     }
 
     async fn spawn(&self) {
+        if !self.pool.config().lsn_checks_enabled() {
+            self.on_request().await;
+            return;
+        }
+
         select! {
             _ = safe_sleep(self.pool.config().lsn_check_delay) => {},
             _ = self.pool.comms().shutdown.cancelled() => { return; }
@@ -190,6 +195,32 @@ impl LsnMonitor {
                 Ok(result) => aurora_detected = result,
                 Err(Error::Offline) => break,
                 Err(_) => continue,
+            }
+        }
+
+        debug!("lsn monitor shutdown [{}]", self.pool.addr());
+    }
+
+    /// Periodic LSN checks are disabled: check when asked
+    /// ([`Pool::request_lsn_check`]), at most once per `lsn_check_interval`.
+    async fn on_request(&self) {
+        let mut aurora_detected: Option<bool> = None;
+
+        loop {
+            select! {
+                _ = self.pool.inner().lsn_check_request.notified() => {},
+                _ = self.pool.comms().shutdown.cancelled() => { break; }
+            }
+
+            match self.run_check(aurora_detected).await {
+                Ok(result) => aurora_detected = result,
+                Err(Error::Offline) => break,
+                Err(_) => {}
+            }
+
+            select! {
+                _ = safe_sleep(self.pool.config().lsn_check_interval) => {},
+                _ = self.pool.comms().shutdown.cancelled() => { break; }
             }
         }
 
@@ -503,5 +534,35 @@ mod test {
             !stats.valid(),
             "Non-Aurora stats should be invalid with zero LSN"
         );
+    }
+
+    #[tokio::test]
+    async fn test_checks_on_request_when_periodic_checks_are_off() {
+        crate::logger();
+        let pool = Pool::new(&PoolConfig {
+            address: Address::new_test(),
+            config: Config {
+                lsn_check_delay: pgdog_config::MAX_DURATION,
+                lsn_check_interval: Duration::from_millis(100),
+                ..Config::default()
+            },
+        });
+        pool.launch();
+
+        // Nobody asked: no sample.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!pool.lsn_stats().valid());
+
+        pool.request_lsn_check();
+        let sampled = timeout(Duration::from_secs(5), async {
+            while !pool.lsn_stats().valid() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(sampled.is_ok(), "a requested check should produce a sample");
+        assert!(!pool.lsn_stats().replica);
+
+        pool.shutdown();
     }
 }

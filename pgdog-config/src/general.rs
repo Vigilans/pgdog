@@ -726,7 +726,9 @@ pub struct General {
     #[serde(default = "General::client_connection_recovery")]
     pub client_connection_recovery: ConnectionRecovery,
 
-    /// How frequently to run the replication delay check.
+    /// How frequently to run the replication delay check. With `lsn_check_delay`
+    /// unset, `read_your_writes` checks a replica only when a read finds it behind,
+    /// at most once per interval.
     ///
     /// _Default:_ `5000`
     ///

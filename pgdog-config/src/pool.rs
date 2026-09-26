@@ -128,6 +128,11 @@ pub struct PoolConfig {
 }
 
 impl PoolConfig {
+    /// Periodic LSN checks run: `lsn_check_delay` is set.
+    pub fn lsn_checks_enabled(&self) -> bool {
+        self.lsn_check_delay < MAX_DURATION
+    }
+
     /// Resolve the settings of one connection pool: the `database` entry of
     /// `shard`, as `user` sees it.
     ///

@@ -49,6 +49,8 @@ pub(crate) struct InnerSync {
     pub(super) params: OnceCell<Parameters>,
     pub(super) lsn_stats: RwLock<LsnStats>,
     pub(super) lsn_role_change: Notify,
+    /// Asks the LSN monitor for a sample while periodic checks are disabled.
+    pub(super) lsn_check_request: Notify,
     pub(super) oids: Arc<Oids>,
 }
 
@@ -80,6 +82,7 @@ impl Pool {
                 params: OnceCell::new(),
                 lsn_stats: RwLock::new(LsnStats::default()),
                 lsn_role_change: Notify::new(),
+                lsn_check_request: Notify::new(),
                 oids,
             }),
         }
@@ -519,6 +522,13 @@ impl Pool {
     /// LSN stats
     pub(crate) fn lsn_stats(&self) -> LsnStats {
         *self.inner().lsn_stats.read()
+    }
+
+    /// Ask the LSN monitor for a fresh sample. Heard only while periodic LSN
+    /// checks are disabled; requests made during a check or its cooldown merge
+    /// into one.
+    pub(crate) fn request_lsn_check(&self) {
+        self.inner.lsn_check_request.notify_one();
     }
 
     #[cfg(test)]

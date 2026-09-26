@@ -2613,3 +2613,48 @@ async fn test_read_your_writes_filter_keeps_caught_up_replicas_only() {
     );
     assert!(candidates.iter().any(|t| t.role() == Role::Primary));
 }
+
+async fn lsn_check_requested(target: &Target) -> bool {
+    timeout(
+        Duration::from_millis(50),
+        target.pool.inner().lsn_check_request.notified(),
+    )
+    .await
+    .is_ok()
+}
+
+#[tokio::test]
+async fn test_read_your_writes_filter_requests_check_of_behind_replicas() {
+    use smallvec::SmallVec;
+    let mut primary_cfg = create_test_pool_config("127.0.0.1", 5432);
+    primary_cfg.address.configured_role = Role::Primary;
+    let lb = LoadBalancer::new(
+        &Some(Pool::new(&primary_cfg)),
+        &[
+            create_test_pool_config("127.0.0.1", 5433),
+            create_test_pool_config("127.0.0.1", 5434),
+        ],
+        LoadBalancingStrategy::Random,
+        ReadWriteSplit::ExcludePrimary,
+        Default::default(),
+    );
+    let replicas: Vec<&Target> = lb
+        .targets
+        .iter()
+        .filter(|t| t.role() == Role::Replica)
+        .collect();
+    set_lsn_stats(replicas[0], true, 100);
+    set_lsn_stats(replicas[1], true, 300);
+
+    // Position not known yet: the primary serves the read, nothing to refresh.
+    let mut candidates: SmallVec<[&Target; 32]> = lb.targets.iter().collect();
+    LoadBalancer::retain_caught_up(&mut candidates, Some(i64::MAX));
+    assert!(!lsn_check_requested(replicas[0]).await);
+    assert!(!lsn_check_requested(replicas[1]).await);
+
+    // Known position: only the replica behind it is asked for a fresh sample.
+    let mut candidates: SmallVec<[&Target; 32]> = lb.targets.iter().collect();
+    LoadBalancer::retain_caught_up(&mut candidates, Some(200));
+    assert!(lsn_check_requested(replicas[0]).await);
+    assert!(!lsn_check_requested(replicas[1]).await);
+}
