@@ -1,9 +1,14 @@
 use tracing::{info, trace};
 
+use pgdog_config::ReadYourWrites;
+
 use crate::{
+    backend::pool::ryw,
     frontend::{
         client::{TransactionType, transaction_type::Transaction},
-        router::parser::{explain_trace::ExplainTrace, rewrite::statement::plan::RewriteResult},
+        router::parser::{
+            Shard, explain_trace::ExplainTrace, rewrite::statement::plan::RewriteResult,
+        },
     },
     net::{
         DataRow, FromBytes, Message, Protocol, ProtocolMessage, Query, ReadyForQuery,
@@ -19,6 +24,35 @@ use super::hooks::schema::schema_changed;
 use super::*;
 
 impl QueryEngine {
+    /// A statement or transaction just committed: raise the read-your-writes
+    /// floor for its scope so later reads wait for replicas to catch up.
+    fn record_read_your_writes(&self, context: &QueryEngineContext<'_>) {
+        let Ok(cluster) = self.backend.cluster() else {
+            return;
+        };
+        if cluster.read_your_writes() == ReadYourWrites::Off {
+            return;
+        }
+        let route = context.client_request.route();
+        let wrote = context
+            .transaction
+            .as_ref()
+            .map(|t| t.write())
+            .unwrap_or(false)
+            || route.is_write();
+        if !wrote {
+            return;
+        }
+        let shards: Vec<usize> = match route.shard() {
+            Shard::Direct(shard) => vec![*shard],
+            Shard::Multi(shards) => shards.clone(),
+            _ => (0..cluster.shards().len()).collect(),
+        };
+        for shard in shards {
+            ryw::record_write(cluster.user(), cluster.name(), shard);
+        }
+    }
+
     /// Handle query from client.
     pub(super) async fn execute(
         &mut self,
@@ -220,6 +254,7 @@ impl QueryEngine {
                 }
 
                 TransactionState::Idle => {
+                    self.record_read_your_writes(context);
                     context.transaction = None;
                 }
 

@@ -21,6 +21,7 @@ pub(crate) mod pool_impl;
 pub(crate) mod recovery;
 pub(crate) mod request;
 pub(crate) mod role;
+pub(crate) mod ryw;
 pub(crate) mod shard;
 pub(crate) mod state;
 pub(crate) mod stats;
