@@ -9,6 +9,7 @@ use std::{
 };
 
 use rand::seq::SliceRandom;
+use smallvec::SmallVec;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -362,16 +363,44 @@ impl LoadBalancer {
         self.wait_primary().await?.get(request).await
     }
 
+    /// Drop replicas whose replay offset is below `min_lsn`. Returns true when the
+    /// floor left no replica, i.e. the primary must serve this read.
+    pub(super) fn retain_caught_up(
+        candidates: &mut SmallVec<[&Target; 32]>,
+        min_lsn: Option<i64>,
+    ) -> bool {
+        let Some(min_lsn) = min_lsn else {
+            return false;
+        };
+        let replicas_before = candidates
+            .iter()
+            .filter(|target| target.role() == Role::Replica)
+            .count();
+        candidates.retain(|target| {
+            if target.role() != Role::Replica {
+                return true;
+            }
+            let stats = target.pool.lsn_stats();
+            stats.valid() && stats.offset_bytes >= min_lsn
+        });
+        let replicas_after = candidates
+            .iter()
+            .filter(|target| target.role() == Role::Replica)
+            .count();
+        replicas_before > 0 && replicas_after == 0
+    }
+
     async fn get_internal(&self, request: &Request) -> Result<Guard, Error> {
         use LoadBalancingStrategy::*;
         use ReadWriteSplit::*;
-        use smallvec::SmallVec;
 
         let mut candidates: SmallVec<[&Target; 32]> = self
             .targets
             .iter()
             .filter(|target| !target.pool.config().resharding_only) // Don't let reads on resharding-only replicas.
             .collect();
+
+        let held_to_primary = Self::retain_caught_up(&mut candidates, request.min_lsn);
 
         let has_unbanned_replica = candidates
             .iter()
@@ -391,6 +420,9 @@ impl LoadBalancer {
             // no replicas are available.
             PreferPrimary => !has_unbanned_replica,
         };
+        // Read-your-writes: no replica has replayed the write yet, so the primary
+        // serves this read regardless of the split strategy. Never an error.
+        let primary_reads = primary_reads || held_to_primary;
 
         if !primary_reads {
             candidates.retain(|target| target.role() == Role::Replica);

@@ -2559,3 +2559,57 @@ async fn initial_healthcheck_banned_targets_stay_banned_on_reload() {
         "banned target became healthy on copy"
     );
 }
+
+#[tokio::test]
+async fn test_read_your_writes_filter_keeps_caught_up_replicas_only() {
+    use smallvec::SmallVec;
+    let mut primary_cfg = create_test_pool_config("127.0.0.1", 5432);
+    primary_cfg.address.configured_role = Role::Primary;
+    let lb = LoadBalancer::new(
+        &Some(Pool::new(&primary_cfg)),
+        &[
+            create_test_pool_config("127.0.0.1", 5433),
+            create_test_pool_config("127.0.0.1", 5434),
+        ],
+        LoadBalancingStrategy::Random,
+        ReadWriteSplit::ExcludePrimary,
+        Default::default(),
+    );
+    let replicas: Vec<&Target> = lb
+        .targets
+        .iter()
+        .filter(|t| t.role() == Role::Replica)
+        .collect();
+    assert_eq!(replicas.len(), 2);
+    set_lsn_stats(replicas[0], true, 100);
+    set_lsn_stats(replicas[1], true, 300);
+
+    let mut candidates: SmallVec<[&Target; 32]> = lb.targets.iter().collect();
+    assert!(!LoadBalancer::retain_caught_up(&mut candidates, None));
+    assert_eq!(candidates.len(), 3);
+
+    let mut candidates: SmallVec<[&Target; 32]> = lb.targets.iter().collect();
+    assert!(!LoadBalancer::retain_caught_up(&mut candidates, Some(200)));
+    assert_eq!(
+        candidates
+            .iter()
+            .filter(|t| t.role() == Role::Replica)
+            .count(),
+        1
+    );
+    assert!(candidates.iter().any(|t| t.role() == Role::Primary));
+
+    let mut candidates: SmallVec<[&Target; 32]> = lb.targets.iter().collect();
+    assert!(LoadBalancer::retain_caught_up(
+        &mut candidates,
+        Some(i64::MAX)
+    ));
+    assert_eq!(
+        candidates
+            .iter()
+            .filter(|t| t.role() == Role::Replica)
+            .count(),
+        0
+    );
+    assert!(candidates.iter().any(|t| t.role() == Role::Primary));
+}
