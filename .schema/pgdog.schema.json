@@ -100,6 +100,7 @@
         "query_timeout": 9223372036854775807,
         "read_write_split": "include_primary",
         "read_write_strategy": "conservative",
+        "read_your_writes": "off",
         "regex_parser_limit": 1000,
         "reload_schema_on_ddl": true,
         "require_healthcheck_on_discovery": false,
@@ -1177,6 +1178,11 @@
           "$ref": "#/$defs/ReadWriteStrategy",
           "default": "conservative"
         },
+        "read_your_writes": {
+          "description": "Read-your-writes guarantee scope for load-balanced reads. Needs LSN checks\n(`lsn_check_delay`) for reads to return to replicas after a write.\n\n_Default:_ `off`",
+          "$ref": "#/$defs/ReadYourWrites",
+          "default": "off"
+        },
         "regex_parser_limit": {
           "description": "Limit on the size of the query the regex parser will inspect.",
           "type": "integer",
@@ -1899,6 +1905,26 @@
           "description": "Use first statement inside a transaction for determining query route.",
           "type": "string",
           "const": "aggressive"
+        }
+      ]
+    },
+    "ReadYourWrites": {
+      "description": "Read-your-writes guarantee scope for load-balanced reads.\n\nAfter a write completes, reads within the scope are served only by\nreplicas that have replayed past that write, or by the primary.",
+      "oneOf": [
+        {
+          "description": "No guarantee (default): reads are balanced regardless of recent writes.",
+          "type": "string",
+          "const": "off"
+        },
+        {
+          "description": "Floor per (database, shard): any write to the database raises it.",
+          "type": "string",
+          "const": "database"
+        },
+        {
+          "description": "Floor per (user, database, shard): only the writing user's reads are held back.",
+          "type": "string",
+          "const": "user"
         }
       ]
     },

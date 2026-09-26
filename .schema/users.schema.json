@@ -68,6 +68,26 @@
         }
       ]
     },
+    "ReadYourWrites": {
+      "description": "Read-your-writes guarantee scope for load-balanced reads.\n\nAfter a write completes, reads within the scope are served only by\nreplicas that have replayed past that write, or by the primary.",
+      "oneOf": [
+        {
+          "description": "No guarantee (default): reads are balanced regardless of recent writes.",
+          "type": "string",
+          "const": "off"
+        },
+        {
+          "description": "Floor per (database, shard): any write to the database raises it.",
+          "type": "string",
+          "const": "database"
+        },
+        {
+          "description": "Floor per (user, database, shard): only the writing user's reads are held back.",
+          "type": "string",
+          "const": "user"
+        }
+      ]
+    },
     "ServerAuth": {
       "description": "Backend authentication mode used by PgDog for server connections.",
       "oneOf": [
@@ -266,6 +286,17 @@
           "type": [
             "boolean",
             "null"
+          ]
+        },
+        "read_your_writes": {
+          "description": "Overrides [`read_your_writes`](https://docs.pgdog.dev/configuration/pgdog.toml/general/) for this user.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadYourWrites"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "replication_mode": {

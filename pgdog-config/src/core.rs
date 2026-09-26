@@ -10,8 +10,8 @@ use crate::sharding::ShardedSchema;
 use crate::util::random_string;
 use crate::{
     EnumeratedDatabase, Memory, OmnishardedTable, PassthroughAuth, PreparedStatementsLevel,
-    QueryParser, QueryParserLevel, ReadWriteSplit, RewriteMode, Role, ShardedMappingKey,
-    ShardedTableConfig, SystemCatalogsBehavior, system_catalogs,
+    QueryParser, QueryParserLevel, ReadWriteSplit, ReadYourWrites, RewriteMode, Role,
+    ShardedMappingKey, ShardedTableConfig, SystemCatalogsBehavior, system_catalogs,
 };
 
 use super::database::Database;
@@ -640,6 +640,20 @@ impl Config {
                 warn!(
                     r#"database "{}" has a role set to "auto" but LSN checks are disabled: this disables automatic role detection"#,
                     database
+                );
+            }
+        }
+
+        if self.general.read_your_writes != ReadYourWrites::Off {
+            if !self.general.lsn_checks_enabled() {
+                warn!(
+                    r#""read_your_writes" is "{}" but LSN checks are disabled: reads stay on the primary until "lsn_check_delay" is set"#,
+                    self.general.read_your_writes
+                );
+            }
+            if self.general.read_write_split == ReadWriteSplit::PreferPrimary {
+                warn!(
+                    r#""read_your_writes" has no effect with "read_write_split" = "prefer_primary""#
                 );
             }
         }

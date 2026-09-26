@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use tracing::warn;
 
 use super::core::Config;
+use super::database::ReadYourWrites;
 use super::pooling::PoolerMode;
 use crate::RoleConfig;
 use crate::util::random_string;
@@ -385,6 +386,8 @@ pub struct User {
     pub idle_timeout: Option<u64>,
     /// Sets `default_transaction_read_only` to `on` for all connections.
     pub read_only: Option<bool>,
+    /// Overrides [`read_your_writes`](https://docs.pgdog.dev/configuration/pgdog.toml/general/) for this user.
+    pub read_your_writes: Option<ReadYourWrites>,
     /// Schema owner with elevated DDL privileges.
     #[serde(default)]
     pub schema_admin: bool,

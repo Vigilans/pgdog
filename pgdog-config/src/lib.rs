@@ -30,7 +30,8 @@ pub use auth::{AuthType, PassthroughAuth};
 pub use core::{Config, ConfigAndUsers};
 pub use data_types::*;
 pub use database::{
-    Database, EnumeratedDatabase, LoadBalancingStrategy, ReadWriteSplit, ReadWriteStrategy, Role,
+    Database, EnumeratedDatabase, LoadBalancingStrategy, ReadWriteSplit, ReadWriteStrategy,
+    ReadYourWrites, Role,
 };
 pub use error::Error;
 pub use general::{General, LogFormat, QuerySizeLimitAction};

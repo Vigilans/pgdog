@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::auth::{AuthType, PassthroughAuth};
-use super::database::{LoadBalancingStrategy, ReadWriteSplit, ReadWriteStrategy};
+use super::database::{LoadBalancingStrategy, ReadWriteSplit, ReadWriteStrategy, ReadYourWrites};
 use super::networking::TlsVerifyMode;
 use super::pooling::{PoolerMode, PreparedStatementsLevel};
 
@@ -245,6 +245,13 @@ pub struct General {
     /// <https://docs.pgdog.dev/configuration/pgdog.toml/general/#read_write_split>
     #[serde(default)]
     pub read_write_split: ReadWriteSplit,
+
+    /// Read-your-writes guarantee scope for load-balanced reads. Needs LSN checks
+    /// (`lsn_check_delay`) for reads to return to replicas after a write.
+    ///
+    /// _Default:_ `off`
+    #[serde(default = "General::read_your_writes")]
+    pub read_your_writes: ReadYourWrites,
 
     /// Path to the TLS certificate PgDog will use to setup TLS connections with clients.
     ///
@@ -923,6 +930,7 @@ impl Default for General {
             load_balancing_strategy: Self::load_balancing_strategy(),
             read_write_strategy: Self::read_write_strategy(),
             read_write_split: Self::read_write_split(),
+            read_your_writes: Self::read_your_writes(),
             tls_certificate: Self::tls_certificate(),
             tls_private_key: Self::tls_private_key(),
             tls_client_required: bool::default(),
@@ -1339,6 +1347,10 @@ impl General {
         Self::env_enum_or_default("PGDOG_READ_WRITE_SPLIT")
     }
 
+    fn read_your_writes() -> ReadYourWrites {
+        Self::env_enum_or_default("PGDOG_READ_YOUR_WRITES")
+    }
+
     fn prepared_statements() -> PreparedStatementsLevel {
         Self::env_enum_or_default("PGDOG_PREPARED_STATEMENTS")
     }
@@ -1607,6 +1619,22 @@ impl General {
 mod tests {
     use super::*;
     use crate::test_utils::*;
+
+    #[test]
+    fn test_read_your_writes_parse() {
+        assert_eq!(
+            "database".parse::<ReadYourWrites>().unwrap(),
+            ReadYourWrites::Database
+        );
+        assert_eq!(
+            "Off".parse::<ReadYourWrites>().unwrap(),
+            ReadYourWrites::Off
+        );
+        assert!("row".parse::<ReadYourWrites>().is_err());
+        let general: General = toml::from_str("read_your_writes = \"user\"").unwrap();
+        assert_eq!(general.read_your_writes, ReadYourWrites::User);
+        assert_eq!(General::default().read_your_writes, ReadYourWrites::Off);
+    }
 
     #[test]
     fn test_prepared_statements_ttl_defaults() {

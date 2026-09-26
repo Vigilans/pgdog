@@ -87,6 +87,10 @@ impl Command for Set {
                 config.config.general.read_write_split = Self::from_json(&self.value)?;
             }
 
+            "read_your_writes" => {
+                config.config.general.read_your_writes = Self::from_json(&self.value)?;
+            }
+
             "load_balancing_strategy" => {
                 config.config.general.load_balancing_strategy = Self::from_json(&self.value)?;
             }

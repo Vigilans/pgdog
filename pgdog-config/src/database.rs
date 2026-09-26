@@ -114,6 +114,49 @@ impl Display for ReadWriteSplit {
     }
 }
 
+/// Read-your-writes guarantee scope for load-balanced reads.
+///
+/// After a write completes, reads within the scope are served only by
+/// replicas that have replayed past that write, or by the primary.
+#[derive(
+    Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Copy, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadYourWrites {
+    /// No guarantee (default): reads are balanced regardless of recent writes.
+    #[default]
+    Off,
+    /// Floor per (database, shard): any write to the database raises it.
+    Database,
+    /// Floor per (user, database, shard): only the writing user's reads are held back.
+    User,
+}
+
+impl FromStr for ReadYourWrites {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().replace(['_', '-'], "").as_str() {
+            "off" => Ok(Self::Off),
+            "database" => Ok(Self::Database),
+            "user" => Ok(Self::User),
+            _ => Err(format!("Invalid read_your_writes: {}", s)),
+        }
+    }
+}
+
+impl Display for ReadYourWrites {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display = match self {
+            Self::Off => "off",
+            Self::Database => "database",
+            Self::User => "user",
+        };
+
+        write!(f, "{}", display)
+    }
+}
+
 /// Database settings configure which databases PgDog is managing. This is a TOML list of hosts, ports, and other settings like database roles (primary or replica).
 ///
 /// <https://docs.pgdog.dev/configuration/pgdog.toml/databases/>

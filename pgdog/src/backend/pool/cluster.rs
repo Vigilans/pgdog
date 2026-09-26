@@ -3,8 +3,8 @@
 use futures::future::try_join_all;
 use parking_lot::Mutex;
 use pgdog_config::{
-    LoadSchema, PreparedStatementsLevel, QueryParser, QueryParserLevel, Rewrite, RewriteMode,
-    users::PasswordKind,
+    LoadSchema, PreparedStatementsLevel, QueryParser, QueryParserLevel, ReadYourWrites, Rewrite,
+    RewriteMode, users::PasswordKind,
 };
 use std::{sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -60,6 +60,7 @@ pub(crate) struct Cluster {
     multi_tenant: Option<MultiTenant>,
     rw_strategy: ReadWriteStrategy,
     rw_split: ReadWriteSplit,
+    ryw: ReadYourWrites,
     schema_admin: bool,
     stats: Arc<Mutex<ClusterMetrics>>,
     cross_shard_disabled: bool,
@@ -111,6 +112,7 @@ impl Default for Cluster {
             multi_tenant: Default::default(),
             rw_strategy: Default::default(),
             rw_split: Default::default(),
+            ryw: Default::default(),
             schema_admin: Default::default(),
             stats: Default::default(),
             cross_shard_disabled: Default::default(),
@@ -200,6 +202,7 @@ pub(crate) struct ClusterConfig<'a> {
     multi_tenant: &'a Option<MultiTenant>,
     rw_strategy: ReadWriteStrategy,
     rw_split: ReadWriteSplit,
+    ryw: ReadYourWrites,
     schema_admin: bool,
     cross_shard_disabled: bool,
     two_pc: bool,
@@ -265,6 +268,7 @@ impl<'a> ClusterConfig<'a> {
             multi_tenant,
             rw_strategy: general.read_write_strategy,
             rw_split: general.read_write_split,
+            ryw: user.read_your_writes.unwrap_or(general.read_your_writes),
             schema_admin: user.schema_admin,
             cross_shard_disabled: user
                 .cross_shard_disabled
@@ -317,6 +321,7 @@ impl Cluster {
             multi_tenant,
             rw_strategy,
             rw_split,
+            ryw,
             schema_admin,
             cross_shard_disabled,
             two_pc,
@@ -389,6 +394,7 @@ impl Cluster {
             multi_tenant: multi_tenant.clone(),
             rw_strategy,
             rw_split,
+            ryw,
             schema_admin,
             stats,
             cross_shard_disabled,
@@ -564,6 +570,11 @@ impl Cluster {
 
     pub(crate) fn expanded_explain(&self) -> bool {
         self.expanded_explain
+    }
+
+    /// Read-your-writes scope for this cluster (user override or general setting).
+    pub(crate) fn read_your_writes(&self) -> ReadYourWrites {
+        self.ryw
     }
 
     /// A cluster is read_only if zero shards have a primary,
