@@ -202,9 +202,9 @@ impl Shard {
         self.lb.has_replicas()
     }
 
-    /// Latest LSN sample of the primary, if the shard has one.
-    pub(crate) fn primary_lsn_stats(&self) -> Option<super::lsn_monitor::LsnStats> {
-        self.lb.primary().map(|pool| pool.lsn_stats())
+    /// The primary's connection pool, if the shard has one.
+    pub(crate) fn primary_pool(&self) -> Option<&Pool> {
+        self.lb.primary()
     }
 
     /// Request a query to be cancelled on any of the servers in the connection pools

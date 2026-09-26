@@ -24,8 +24,8 @@ use super::hooks::schema::schema_changed;
 use super::*;
 
 impl QueryEngine {
-    /// A statement or transaction just committed: raise the read-your-writes
-    /// floor for its scope so later reads wait for replicas to catch up.
+    /// A statement or transaction just committed: until its WAL position is
+    /// known, reads in its scope stay on the primary.
     fn record_read_your_writes(&self, context: &QueryEngineContext<'_>) {
         let Ok(cluster) = self.backend.cluster() else {
             return;
@@ -48,8 +48,10 @@ impl QueryEngine {
             Shard::Multi(shards) => shards.clone(),
             _ => (0..cluster.shards().len()).collect(),
         };
-        for shard in shards {
-            ryw::record_write(cluster.user(), cluster.name(), shard);
+        for number in shards {
+            if let Some(shard) = cluster.shards().get(number) {
+                ryw::record_write(shard, cluster.user(), cluster.name(), number);
+            }
         }
     }
 

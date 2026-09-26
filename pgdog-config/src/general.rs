@@ -246,8 +246,8 @@ pub struct General {
     #[serde(default)]
     pub read_write_split: ReadWriteSplit,
 
-    /// Read-your-writes guarantee scope for load-balanced reads. Needs LSN checks
-    /// (`lsn_check_delay`) for reads to return to replicas after a write.
+    /// Read-your-writes guarantee scope for load-balanced reads: after a write
+    /// commits, reads in its scope go to the primary until a replica replayed it.
     ///
     /// _Default:_ `off`
     #[serde(default = "General::read_your_writes")]
@@ -737,6 +737,7 @@ pub struct General {
     pub lsn_check_interval: u64,
 
     /// Maximum amount of time allowed for the replication delay query to return a result.
+    /// Also bounds fetching a write's WAL position for `read_your_writes`.
     ///
     /// _Default:_ `5000`
     ///

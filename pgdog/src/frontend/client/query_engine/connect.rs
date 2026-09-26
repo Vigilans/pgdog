@@ -9,8 +9,8 @@ use tracing::{error, trace};
 
 impl QueryEngine {
     /// Resolve the read-your-writes floor for a read into a minimum replay offset.
-    /// `None`: no constraint. `Some(i64::MAX)`: primary only (no primary sample
-    /// taken after the last write yet, or the shard is not a single one).
+    /// `None`: no constraint. `Some(i64::MAX)`: primary only (a write's position is
+    /// not known yet, or the shard is not a single one).
     fn read_your_writes_floor(&self, route: &Route) -> Option<i64> {
         if !route.is_read() {
             return None;
@@ -20,18 +20,15 @@ impl QueryEngine {
         if scope == ReadYourWrites::Off {
             return None;
         }
-        let shard = match route.shard() {
+        let number = match route.shard() {
             Shard::Direct(shard) => *shard,
             _ if cluster.shards().len() == 1 => 0,
             _ => return Some(i64::MAX),
         };
-        let floor = ryw::last_write(scope, cluster.user(), cluster.name(), shard)?;
-        let primary = cluster.shards().get(shard)?.primary_lsn_stats()?;
-        if primary.valid() && !primary.replica && primary.queried_at > floor {
-            Some(primary.offset_bytes)
-        } else {
-            Some(i64::MAX)
-        }
+        let Some(shard) = cluster.shards().get(number) else {
+            return Some(i64::MAX);
+        };
+        ryw::min_lsn(scope, cluster.user(), cluster.name(), number, shard)
     }
 
     /// Connect to backend, if necessary.

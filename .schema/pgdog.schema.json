@@ -1004,7 +1004,7 @@
           "minimum": 0
         },
         "lsn_check_timeout": {
-          "description": "Maximum amount of time allowed for the replication delay query to return a result.\n\n_Default:_ `5000`\n\n<https://docs.pgdog.dev/configuration/pgdog.toml/general/#lsn_check_timeout>",
+          "description": "Maximum amount of time allowed for the replication delay query to return a result.\nAlso bounds fetching a write's WAL position for `read_your_writes`.\n\n_Default:_ `5000`\n\n<https://docs.pgdog.dev/configuration/pgdog.toml/general/#lsn_check_timeout>",
           "type": "integer",
           "format": "uint64",
           "default": 5000,
@@ -1179,7 +1179,7 @@
           "default": "conservative"
         },
         "read_your_writes": {
-          "description": "Read-your-writes guarantee scope for load-balanced reads. Needs LSN checks\n(`lsn_check_delay`) for reads to return to replicas after a write.\n\n_Default:_ `off`",
+          "description": "Read-your-writes guarantee scope for load-balanced reads: after a write\ncommits, reads in its scope go to the primary until a replica replayed it.\n\n_Default:_ `off`",
           "$ref": "#/$defs/ReadYourWrites",
           "default": "off"
         },
