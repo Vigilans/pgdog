@@ -12,6 +12,10 @@ pub(crate) struct Request {
     // Load balancer uses this to determine if primary should be allowed to read.
     // Propagated from `User.read_only` setting.
     pub(crate) read_only: bool,
+
+    /// Read-your-writes floor: only replicas whose replay offset (bytes) reached
+    /// this value may serve the read. `i64::MAX` pins the read to the primary.
+    pub(crate) min_lsn: Option<i64>,
 }
 
 impl Request {
@@ -21,6 +25,7 @@ impl Request {
             created_at: Instant::now(),
             read,
             read_only,
+            min_lsn: None,
         }
     }
 
@@ -30,7 +35,13 @@ impl Request {
             created_at: Instant::now(),
             read: false,
             read_only: false,
+            min_lsn: None,
         }
+    }
+
+    pub(crate) fn with_min_lsn(mut self, min_lsn: Option<i64>) -> Self {
+        self.min_lsn = min_lsn;
+        self
     }
 }
 

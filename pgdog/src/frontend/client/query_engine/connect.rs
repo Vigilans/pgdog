@@ -1,11 +1,39 @@
-use crate::frontend::router::parser::{ShardWithPriority, route::ShardSource};
+use crate::backend::pool::ryw;
+use crate::frontend::router::parser::{Shard, ShardWithPriority, route::ShardSource};
 use crate::util::safe_timeout;
+use pgdog_config::ReadYourWrites;
 
 use super::*;
 
 use tracing::{error, trace};
 
 impl QueryEngine {
+    /// Resolve the read-your-writes floor for a read into a minimum replay offset.
+    /// `None`: no constraint. `Some(i64::MAX)`: primary only (no primary sample
+    /// taken after the last write yet, or the shard is not a single one).
+    fn read_your_writes_floor(&self, route: &Route) -> Option<i64> {
+        if !route.is_read() {
+            return None;
+        }
+        let cluster = self.backend.cluster().ok()?;
+        let scope = cluster.read_your_writes();
+        if scope == ReadYourWrites::Off {
+            return None;
+        }
+        let shard = match route.shard() {
+            Shard::Direct(shard) => *shard,
+            _ if cluster.shards().len() == 1 => 0,
+            _ => return Some(i64::MAX),
+        };
+        let floor = ryw::last_write(scope, cluster.user(), cluster.name(), shard)?;
+        let primary = cluster.shards().get(shard)?.primary_lsn_stats()?;
+        if primary.valid() && !primary.replica && primary.queried_at > floor {
+            Some(primary.offset_bytes)
+        } else {
+            Some(i64::MAX)
+        }
+    }
+
     /// Connect to backend, if necessary.
     ///
     /// Return true if connected, false otherwise.
@@ -32,7 +60,8 @@ impl QueryEngine {
         // Pass through the cluster's `read_only` flag (propagated from `User.read_only`)
         // to determine if we should exclude the primary from being allowed to read.
         let read_only = self.backend.cluster()?.read_only();
-        let request = Request::new(context.id, connect_route.is_read(), read_only);
+        let request = Request::new(context.id, connect_route.is_read(), read_only)
+            .with_min_lsn(self.read_your_writes_floor(connect_route));
 
         self.stats.waiting(request.created_at);
         self.comms.update_stats(self.stats);

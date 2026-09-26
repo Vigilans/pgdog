@@ -97,12 +97,13 @@ impl LsnStats {
 }
 
 impl LsnStats {
-    fn from_row(value: DataRow, aurora: bool) -> Self {
+    fn from_row(value: DataRow, aurora: bool, queried_at: SystemTime) -> Self {
         StatsLsnStats {
             replica: value.get(0, Format::Text).unwrap_or_default(),
             lsn: value.get(1, Format::Text).unwrap_or_default(),
             offset_bytes: value.get(2, Format::Text).unwrap_or_default(),
             timestamp: value.get(3, Format::Text).unwrap_or_default(),
+            queried_at,
             fetched: SystemTime::now(),
             aurora,
         }
@@ -216,9 +217,10 @@ impl LsnMonitor {
 
         let query = if aurora { AURORA_LSN_QUERY } else { LSN_QUERY };
 
+        let queried_at = SystemTime::now();
         if let Some(row) = self.run_query(&mut conn, query).await {
             drop(conn);
-            let stats = LsnStats::from_row(row, aurora);
+            let stats = LsnStats::from_row(row, aurora, queried_at);
             {
                 let mut guard = self.pool.inner().lsn_stats.write();
                 // Notify that the role changed and the shard monitor
@@ -365,6 +367,7 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
+            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: false,
         }
@@ -471,6 +474,7 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
+            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: true,
         }
@@ -489,6 +493,7 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
+            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: false,
         }
