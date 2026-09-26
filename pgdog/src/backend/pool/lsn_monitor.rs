@@ -1,6 +1,6 @@
 use std::{
     ops::{Deref, DerefMut},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use tokio::select;
@@ -62,6 +62,9 @@ SELECT
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct LsnStats {
     inner: StatsLsnStats,
+    /// When the sampling query was sent: the sample saw the server at this
+    /// moment or later. `None` until the first sample.
+    pub(crate) queried_at: Option<Instant>,
 }
 
 impl Deref for LsnStats {
@@ -80,7 +83,10 @@ impl DerefMut for LsnStats {
 
 impl From<StatsLsnStats> for LsnStats {
     fn from(value: StatsLsnStats) -> Self {
-        Self { inner: value }
+        Self {
+            inner: value,
+            queried_at: None,
+        }
     }
 }
 
@@ -97,17 +103,18 @@ impl LsnStats {
 }
 
 impl LsnStats {
-    fn from_row(value: DataRow, aurora: bool, queried_at: SystemTime) -> Self {
-        StatsLsnStats {
-            replica: value.get(0, Format::Text).unwrap_or_default(),
-            lsn: value.get(1, Format::Text).unwrap_or_default(),
-            offset_bytes: value.get(2, Format::Text).unwrap_or_default(),
-            timestamp: value.get(3, Format::Text).unwrap_or_default(),
-            queried_at,
-            fetched: SystemTime::now(),
-            aurora,
+    fn from_row(value: DataRow, aurora: bool, queried_at: Instant) -> Self {
+        Self {
+            inner: StatsLsnStats {
+                replica: value.get(0, Format::Text).unwrap_or_default(),
+                lsn: value.get(1, Format::Text).unwrap_or_default(),
+                offset_bytes: value.get(2, Format::Text).unwrap_or_default(),
+                timestamp: value.get(3, Format::Text).unwrap_or_default(),
+                fetched: SystemTime::now(),
+                aurora,
+            },
+            queried_at: Some(queried_at),
         }
-        .into()
     }
 }
 
@@ -248,7 +255,7 @@ impl LsnMonitor {
 
         let query = if aurora { AURORA_LSN_QUERY } else { LSN_QUERY };
 
-        let queried_at = SystemTime::now();
+        let queried_at = Instant::now();
         if let Some(row) = self.run_query(&mut conn, query).await {
             drop(conn);
             let stats = LsnStats::from_row(row, aurora, queried_at);
@@ -398,7 +405,6 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
-            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: false,
         }
@@ -505,7 +511,6 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
-            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: true,
         }
@@ -524,7 +529,6 @@ mod test {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
-            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: false,
         }

@@ -94,10 +94,6 @@ pub struct LsnStats {
     pub offset_bytes: i64,
     /// Server timestamp.
     pub timestamp: TimestampTz,
-    /// When the sampling query was sent (before `fetched`): a sample is only
-    /// newer than a write if it was *sent* after the write completed.
-    #[schemars(with = "SystemTimeRepr")]
-    pub queried_at: SystemTime,
     /// Our timestamp.
     #[schemars(with = "SystemTimeRepr")]
     pub fetched: SystemTime,
@@ -126,7 +122,6 @@ impl Default for LsnStats {
             lsn: Lsn::default(),
             offset_bytes: 0,
             timestamp: TimestampTz::default(),
-            queried_at: SystemTime::now(),
             fetched: SystemTime::now(),
             aurora: false,
         }

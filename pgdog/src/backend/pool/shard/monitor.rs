@@ -191,7 +191,6 @@ mod test {
             lsn: Lsn::from_i64(lsn),
             offset_bytes: lsn,
             fetched: SystemTime::now(),
-            queried_at: SystemTime::now(),
             ..Default::default()
         }
         .into();
@@ -209,7 +208,6 @@ mod test {
             offset_bytes: lsn,
             timestamp: TimestampTz::decode(timestamp.as_bytes(), Format::Text).unwrap(),
             fetched: SystemTime::now(),
-            queried_at: SystemTime::now(),
             aurora: false,
         }
         .into()

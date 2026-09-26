@@ -96,7 +96,31 @@ impl Entry {
         let Some(primary) = primary else {
             return (i64::MAX, false);
         };
-        let interval = duration_nanos(primary.config().lsn_check_interval);
+        let config = primary.config();
+        let interval = duration_nanos(config.lsn_check_interval);
+        if config.lsn_checks_enabled() {
+            // A primary sample queried more than an interval after the position
+            // became unknown saw every write before it. The interval also covers
+            // commits made with `synchronous_commit = off`: the sampled WAL write
+            // location passes them within 3 x `wal_writer_delay`.
+            let sample = primary.lsn_stats();
+            let covers = sample.valid()
+                && !sample.replica
+                && sample
+                    .queried_at
+                    .is_some_and(|at| nanos(at) > unknown.saturating_add(interval));
+            if covers {
+                self.lsn.fetch_max(sample.offset_bytes, Ordering::AcqRel);
+                if self
+                    .unknown
+                    .compare_exchange(unknown, 0, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    return (self.lsn.load(Ordering::Acquire), false);
+                }
+            }
+            return (i64::MAX, false);
+        }
         // Unknown for an interval: this read, served by the primary, fetches the
         // position. Of concurrent reads, only the one that moves `unknown` does.
         let due = nanos(Instant::now()).saturating_sub(unknown) >= interval;
@@ -236,8 +260,9 @@ async fn position(shard: &Shard) -> Option<i64> {
 #[cfg(test)]
 mod test {
     use pgdog_config::MAX_DURATION;
+    use pgdog_stats::{Lsn, LsnStats as StatsLsnStats};
 
-    use super::super::{Address, Config, PoolConfig, ShardConfig};
+    use super::super::{Address, Config, LsnStats, PoolConfig, ShardConfig};
     use super::*;
 
     fn key(database: &str) -> Key {
@@ -378,5 +403,34 @@ mod test {
             None
         );
         shard.shutdown();
+    }
+
+    fn set_primary_sample(pool: &Pool, offset: i64, queried_at: Instant) {
+        let mut sample: LsnStats = StatsLsnStats {
+            replica: false,
+            lsn: Lsn::from_i64(offset),
+            offset_bytes: offset,
+            ..Default::default()
+        }
+        .into();
+        sample.queried_at = Some(queried_at);
+        *pool.inner().lsn_stats.write() = sample;
+    }
+
+    #[test]
+    fn test_primary_sample_after_failure_resolves() {
+        let primary = pool(Duration::ZERO, Duration::from_millis(10));
+        let entry = Entry::new();
+        entry.unknown.store(moment(), Ordering::Release);
+
+        // Queried before the failure: it may predate the write.
+        set_primary_sample(&primary, 900, Instant::now() - Duration::from_millis(100));
+        assert_eq!(entry.floor(Some(&primary)), (i64::MAX, false));
+
+        // Queried more than an interval after it: it saw the write.
+        std::thread::sleep(Duration::from_millis(20));
+        set_primary_sample(&primary, 900, Instant::now());
+        assert_eq!(entry.floor(Some(&primary)), (900, false));
+        assert_eq!(entry.unknown.load(Ordering::Acquire), 0);
     }
 }
