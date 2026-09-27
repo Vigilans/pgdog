@@ -23,26 +23,28 @@ use tracing::{debug, error};
 use super::hooks::schema::schema_changed;
 use super::*;
 
+/// The request that just finished committed a write: it ended a transaction
+/// that may have written without rolling it back, or it was an autocommit
+/// statement routed to the primary as a write.
+pub(super) fn committed_write(context: &QueryEngineContext<'_>) -> bool {
+    if context.in_transaction() {
+        context.commits_write()
+    } else {
+        context.client_request.route().is_write()
+    }
+}
+
 impl QueryEngine {
-    /// A statement or transaction just committed: until its WAL position is
-    /// known, reads in its scope stay on the primary.
+    /// A request that may have written just committed: until its WAL position
+    /// is known, reads in its scope stay on the primary.
     fn record_read_your_writes(&self, context: &QueryEngineContext<'_>) {
         let Ok(cluster) = self.backend.cluster() else {
             return;
         };
-        if cluster.read_your_writes() == ReadYourWrites::Off {
+        if cluster.read_your_writes() == ReadYourWrites::Off || !committed_write(context) {
             return;
         }
         let route = context.client_request.route();
-        let wrote = context
-            .transaction
-            .as_ref()
-            .map(|t| t.write())
-            .unwrap_or(false)
-            || route.is_write();
-        if !wrote {
-            return;
-        }
         let shards: Vec<usize> = match route.shard() {
             Shard::Direct(shard) => vec![*shard],
             Shard::Multi(shards) => shards.clone(),

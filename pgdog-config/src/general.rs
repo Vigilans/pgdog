@@ -728,7 +728,10 @@ pub struct General {
 
     /// How frequently to run the replication delay check. With `lsn_check_delay`
     /// unset, `read_your_writes` checks a replica only when a read finds it behind,
-    /// at most once per interval.
+    /// at most once per interval, and a read fetches a write position that has
+    /// been unknown for an interval. With `lsn_check_delay` set, a primary sample
+    /// resolves an unknown write position when it was queried more than an
+    /// interval after the position became unknown.
     ///
     /// _Default:_ `5000`
     ///

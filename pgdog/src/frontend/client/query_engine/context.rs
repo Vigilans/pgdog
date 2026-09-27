@@ -124,4 +124,11 @@ impl<'a> QueryEngineContext<'a> {
     pub(crate) fn in_error(&self) -> bool {
         self.transaction.map(|t| t.error()).unwrap_or_default()
     }
+
+    /// The request ends a transaction that may have written, without rolling it back.
+    pub(crate) fn commits_write(&self) -> bool {
+        self.client_request.route().is_write()
+            && !self.rollback
+            && self.transaction.map(|t| t.write()).unwrap_or(false)
+    }
 }

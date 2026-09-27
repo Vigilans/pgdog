@@ -997,7 +997,7 @@
           "minimum": 0
         },
         "lsn_check_interval": {
-          "description": "How frequently to run the replication delay check. With `lsn_check_delay`\nunset, `read_your_writes` checks a replica only when a read finds it behind,\nat most once per interval.\n\n_Default:_ `5000`\n\n<https://docs.pgdog.dev/configuration/pgdog.toml/general/#lsn_check_interval>",
+          "description": "How frequently to run the replication delay check. With `lsn_check_delay`\nunset, `read_your_writes` checks a replica only when a read finds it behind,\nat most once per interval, and a read fetches a write position that has\nbeen unknown for an interval. With `lsn_check_delay` set, a primary sample\nresolves an unknown write position when it was queried more than an\ninterval after the position became unknown.\n\n_Default:_ `5000`\n\n<https://docs.pgdog.dev/configuration/pgdog.toml/general/#lsn_check_interval>",
           "type": "integer",
           "format": "uint64",
           "default": 5000,
