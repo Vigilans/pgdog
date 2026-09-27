@@ -23,9 +23,16 @@ type Key = (Option<String>, String, usize);
 
 const TASK: &str = "read your writes position";
 
-/// WAL insert location, in bytes: past every record inserted so far, including
-/// commits made with `synchronous_commit = off` that are not written out yet.
-const POSITION: &str = "SELECT pg_current_wal_insert_lsn() - '0/0'::pg_lsn";
+/// WAL insert location, in bytes, and the WAL page and segment sizes (see
+/// [`inserted_end`]).
+const POSITION: &str = "SELECT pg_current_wal_insert_lsn() - '0/0'::pg_lsn, \
+                        current_setting('wal_block_size')::bigint, \
+                        pg_size_bytes(current_setting('wal_segment_size'))";
+
+/// Page header sizes of 64-bit Postgres builds: `SizeOfXLogLongPHD` on the
+/// first page of each segment, `SizeOfXLogShortPHD` on the others.
+const LONG_PAGE_HEADER: i64 = 40;
+const SHORT_PAGE_HEADER: i64 = 24;
 
 struct Entry {
     /// Highest known write position.
@@ -245,7 +252,7 @@ async fn fetch(shard: Shard, mut flight: Flight) {
     }
 }
 
-/// The primary's WAL insert position, within `lsn_check_timeout`.
+/// End of the primary's inserted WAL, within `lsn_check_timeout`.
 async fn position(shard: &Shard) -> Option<i64> {
     let timeout = shard.primary_pool()?.config().lsn_check_timeout;
     let rows = safe_timeout(timeout, async {
@@ -254,7 +261,27 @@ async fn position(shard: &Shard) -> Option<i64> {
     })
     .await
     .ok()??;
-    rows.first()?.get(0, Format::Text)
+    let row = rows.first()?;
+    Some(inserted_end(
+        row.get(0, Format::Text)?,
+        row.get(1, Format::Text)?,
+        row.get(2, Format::Text)?,
+    ))
+}
+
+/// End of the WAL inserted so far, in bytes: past every record inserted,
+/// including commits made with `synchronous_commit = off` that are not written
+/// out yet. On a page boundary, the insert location is where the next record
+/// will start, past the page header; replicas that replayed everything report
+/// the boundary itself.
+fn inserted_end(insert: i64, block_size: i64, segment_size: i64) -> i64 {
+    if insert % segment_size == LONG_PAGE_HEADER {
+        insert - LONG_PAGE_HEADER
+    } else if insert % block_size == SHORT_PAGE_HEADER {
+        insert - SHORT_PAGE_HEADER
+    } else {
+        insert
+    }
 }
 
 #[cfg(test)]
@@ -432,5 +459,27 @@ mod test {
         set_primary_sample(&primary, 900, Instant::now());
         assert_eq!(entry.floor(Some(&primary)), (900, false));
         assert_eq!(entry.unknown.load(Ordering::Acquire), 0);
+    }
+
+    const BLOCK: i64 = 8192;
+    const SEGMENT: i64 = 16 << 20;
+
+    #[test]
+    fn test_position_on_a_page_boundary_is_the_boundary() {
+        // Right after a segment switch: past the segment's long page header.
+        assert_eq!(inserted_end(0xE000028, BLOCK, SEGMENT), 0xE000000);
+        // A record filled the previous page: past the short page header.
+        assert_eq!(inserted_end(0xE002018, BLOCK, SEGMENT), 0xE002000);
+        assert_eq!(inserted_end(0x4000028, BLOCK, 64 << 20), 0x4000000);
+    }
+
+    #[test]
+    fn test_position_inside_inserted_wal_is_unchanged() {
+        // 16 bytes of a record after a short page header.
+        assert_eq!(inserted_end(0xE002028, BLOCK, SEGMENT), 0xE002028);
+        // The same inside a 64 MB segment, where 16 MB is not a segment start.
+        assert_eq!(inserted_end(0x1000028, BLOCK, 64 << 20), 0x1000028);
+        assert_eq!(inserted_end(0xE000030, BLOCK, SEGMENT), 0xE000030);
+        assert_eq!(inserted_end(0xE001FF8, BLOCK, SEGMENT), 0xE001FF8);
     }
 }
